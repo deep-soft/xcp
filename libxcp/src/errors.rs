@@ -14,12 +14,17 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+//! Custom error types.
+
 use std::path::PathBuf;
 
-pub use anyhow::{Error, Result};
+pub use anyhow::Result;
 
 #[derive(Debug, thiserror::Error)]
 pub enum XcpError {
+    #[error("Error during copy: {0}")]
+    CopyError(String),
+
     #[error("Destination Exists: {0}, {1}")]
     DestinationExists(&'static str, PathBuf),
 

@@ -14,40 +14,77 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-mod drivers;
-mod errors;
-mod operations;
 mod options;
 mod progress;
-mod utils;
 
 use std::path::PathBuf;
+use std::{result, thread};
 use std::sync::Arc;
+
+use glob::{glob, Paths};
 use libfs::is_same_file;
-use log::info;
-use simplelog::{ColorChoice, Config, LevelFilter, SimpleLogger, TermLogger, TerminalMode};
+use libxcp::config::Config;
+use libxcp::drivers::load_driver;
+use libxcp::errors::{Result, XcpError};
+use libxcp::feedback::{ChannelUpdater, StatusUpdate, StatusUpdater};
+use log::{error, info};
 
-use crate::drivers::pick_driver;
-use crate::errors::{Result, XcpError};
+use crate::options::Opts;
 
-fn main() -> Result<()> {
-    let opts = Arc::new(options::parse_args()?);
-
+fn init_logging(opts: &Opts) -> Result<()> {
+    use simplelog::{ColorChoice, Config, LevelFilter, SimpleLogger, TermLogger, TerminalMode};
     let log_level = match opts.verbose {
         0 => LevelFilter::Warn,
         1 => LevelFilter::Info,
         2 => LevelFilter::Debug,
         _ => LevelFilter::Trace,
     };
+
     TermLogger::init(
         log_level,
         Config::default(),
         TerminalMode::Mixed,
         ColorChoice::Auto,
-    )
-    .or_else(|_| SimpleLogger::init(log_level, Config::default()))?;
+    ).or_else(
+        |_| SimpleLogger::init(log_level, Config::default())
+    )?;
 
-    let driver = pick_driver(&opts)?;
+    Ok(())
+}
+
+// Expand a list of file-paths or glob-patterns into a list of concrete paths.
+// FIXME: This currently eats non-existent files that are not
+// globs. Should we convert empty glob results into errors?
+fn expand_globs(patterns: &[String]) -> Result<Vec<PathBuf>> {
+    let paths = patterns.iter()
+        .map(|s| glob(s.as_str()))
+        .collect::<result::Result<Vec<Paths>, _>>()?
+        .iter_mut()
+        // Force resolve each glob Paths iterator into a vector of the results...
+        .map::<result::Result<Vec<PathBuf>, _>, _>(|p| p.collect())
+        // And lift all the results up to the top.
+        .collect::<result::Result<Vec<Vec<PathBuf>>, _>>()?
+        .iter()
+        .flat_map(|p| p.to_owned())
+        .collect::<Vec<PathBuf>>();
+
+    Ok(paths)
+}
+
+fn expand_sources(source_list: &[String], opts: &Opts) -> Result<Vec<PathBuf>> {
+    if opts.glob {
+        expand_globs(source_list)
+    } else {
+        let pb = source_list.iter()
+            .map(PathBuf::from)
+            .collect::<Vec<PathBuf>>();
+        Ok(pb)
+    }
+}
+
+fn main() -> Result<()> {
+    let opts = options::parse_args()?;
+    init_logging(&opts)?;
 
     let (dest, source_patterns) = opts
         .paths
@@ -58,38 +95,41 @@ fn main() -> Result<()> {
     // Do this check before expansion otherwise it could result in
     // unexpected behaviour when the a glob expands to a single file.
     if source_patterns.len() > 1 && !dest.is_dir() {
-        return Err(XcpError::InvalidDestination(
-            "Multiple sources and destination is not a directory.",
-        )
-        .into());
+        return Err(XcpError::InvalidDestination("Multiple sources and destination is not a directory.").into());
     }
 
-    let sources = options::expand_sources(source_patterns, &opts)?;
+    let sources = expand_sources(source_patterns, &opts)?;
     if sources.is_empty() {
         return Err(XcpError::InvalidSource("No source files found.").into());
 
-    } else if sources.len() == 1 && dest.is_file() {
+    }
+
+    let config = Arc::new(Config::from(&opts));
+
+    let updater = ChannelUpdater::new(&config);
+    let stat_rx = updater.rx_channel();
+    let stats: Arc<dyn StatusUpdater> = Arc::new(updater);
+
+    let driver = load_driver(opts.driver, &config)?;
+
+    let handle = if sources.len() == 1 && dest.is_file() {
+        let source = sources[0].clone();
+
         // Special case; attemping to rename/overwrite existing file.
         if opts.no_clobber {
-            return Err(XcpError::DestinationExists(
-                "Destination file exists and --no-clobber is set.",
-                dest,
-            )
-            .into());
+            return Err(XcpError::DestinationExists("Destination file exists and --no-clobber is set.", dest).into());
         }
 
         // Special case: Attempt to overwrite a file with
         // itself. Always disallow for now.
-        if is_same_file(&sources[0], &dest)? {
-            return Err(XcpError::DestinationExists(
-                "Source and destination is the same file.",
-                dest,
-            )
-            .into());
+        if is_same_file(&source, &dest)? {
+            return Err(XcpError::DestinationExists("Source and destination is the same file.", dest).into());
         }
 
-        info!("Copying file {:?} to {:?}", sources[0], dest);
-        driver.copy_single(&sources[0], &dest, opts.clone())?;
+        info!("Copying file {:?} to {:?}", source, dest);
+        thread::spawn(move || -> Result<()> {
+            driver.copy_single(&source, &dest, stats)
+        })
 
     } else {
         // Sanity-check all sources up-front
@@ -100,10 +140,7 @@ fn main() -> Result<()> {
             }
 
             if source.is_dir() && !opts.recursive {
-                return Err(XcpError::InvalidSource(
-                    "Source is directory and --recursive not specified.",
-                )
-                .into());
+                return Err(XcpError::InvalidSource("Source is directory and --recursive not specified.").into());
             }
 
             if source == &dest {
@@ -111,15 +148,36 @@ fn main() -> Result<()> {
             }
 
             if dest.exists() && !dest.is_dir() {
-                return Err(XcpError::InvalidDestination(
-                    "Source is directory but target exists and is not a directory",
-                )
-                .into());
+                return Err(XcpError::InvalidDestination("Source is directory but target exists and is not a directory").into());
             }
         }
 
-        driver.copy_all(sources, &dest, opts.clone())?;
+        thread::spawn(move || -> Result<()> {
+            driver.copy_all(sources, &dest, stats)
+        })
+    };
+
+    let pb = progress::create_bar(&opts, 0)?;
+
+    // Gather the results as we go; our end of the channel has been
+    // moved to the driver call and will end when drained.
+    for stat in stat_rx {
+        match stat {
+            StatusUpdate::Copied(v) => pb.inc(v),
+            StatusUpdate::Size(v) => pb.inc_size(v),
+            StatusUpdate::Error(e) => {
+                // FIXME: Optional continue?
+                error!("Received error: {}", e);
+                return Err(e.into());
+            }
+        }
     }
+
+    handle.join()
+            .map_err(|_| XcpError::CopyError("Error during copy operation".to_string()))??;
+
+    info!("Copy complete");
+    pb.end();
 
     Ok(())
 }

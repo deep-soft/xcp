@@ -68,7 +68,7 @@ pub const XATTR_SUPPORTED: bool = {
 };
 
 /// Enum mapping for various *nix file types. Mapped from
-/// [std::fs::FileType] and [rustix::fs::FileTypeExt]. 
+/// [std::fs::FileType] and [rustix::fs::FileTypeExt].
 pub enum FileType {
     File,
     Dir,
@@ -112,8 +112,8 @@ pub struct Extent {
     pub shared: bool,
 }
 
-impl Into<Range<u64>> for Extent {
-    fn into(self) -> Range<u64> {
-        self.start..self.end
+impl From<Extent> for Range<u64> {
+    fn from(e: Extent) -> Self {
+        e.start..e.end
     }
 }

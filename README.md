@@ -8,6 +8,7 @@ below).
 [![Crates.io](https://img.shields.io/crates/v/xcp.svg?colorA=777777)](https://crates.io/crates/xcp) 
 ![Github Actions](https://github.com/tarka/xcp/actions/workflows/tests.yml/badge.svg)
 [![CircleCI](https://circleci.com/gh/tarka/xcp.svg?style=shield)](https://circleci.com/gh/tarka/xcp)
+[![Packaging status](https://repology.org/badge/tiny-repos/xcp.svg)](https://repology.org/project/xcp/versions)
 
 *Warning*: `xcp` is currently beta-level software and almost certainly contains
 bugs and unexpected or inconsistent behaviour. It probably shouldn't be used for
@@ -55,6 +56,7 @@ pkgin install xcp
   filesystem-aware, and can massively speed-up copies on network mounts by
   performing the copy operations server-side. However, unlike `copy_file_range`
   sparse files are detected and handled appropriately.
+* Support for modern filesystem features such as [reflinks](https://btrfs.readthedocs.io/en/latest/Reflink.html).
 * Optimised for 'modern' systems (i.e. multiple cores, copious RAM, and
   solid-state disks, especially ones connected into the main system bus,
   e.g. NVMe).
