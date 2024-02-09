@@ -45,12 +45,12 @@ pub use common::{
     allocate_file,
     copy_file,
     copy_permissions,
+    copy_timestamps,
     is_same_file,
     merge_extents,
     sync,
 };
 pub use errors::Error;
-
 
 /// Flag whether the current OS support
 /// [xattrs](https://man7.org/linux/man-pages/man7/xattr.7.html).
@@ -69,6 +69,7 @@ pub const XATTR_SUPPORTED: bool = {
 
 /// Enum mapping for various *nix file types. Mapped from
 /// [std::fs::FileType] and [rustix::fs::FileTypeExt].
+#[derive(Debug)]
 pub enum FileType {
     File,
     Dir,
@@ -76,6 +77,7 @@ pub enum FileType {
     Socket,
     Fifo,
     Char,
+    Block,
     Other
 }
 
@@ -93,6 +95,8 @@ impl From<fs::FileType> for FileType {
             FileType::Fifo
         } else if ft.is_char_device() {
             FileType::Char
+        } else if ft.is_block_device() {
+            FileType::Block
         } else {
             FileType::Other
         }

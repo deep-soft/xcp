@@ -22,7 +22,7 @@ use std::sync::Arc;
 use crossbeam_channel as cbc;
 use libfs::{
     allocate_file, copy_file_bytes, copy_permissions,
-    next_sparse_segments, probably_sparse, sync, reflink, FileType,
+    next_sparse_segments, probably_sparse, sync, reflink, FileType, copy_timestamps,
 };
 use log::{debug, error, info};
 use walkdir::WalkDir;
@@ -132,6 +132,9 @@ impl CopyHandle {
         if !self.config.no_perms {
             copy_permissions(&self.infd, &self.outfd)?;
         }
+        if !self.config.no_timestamps {
+            copy_timestamps(&self.infd, &self.outfd)?;
+        }
         if self.config.fsync {
             debug!("Syncing file {:?}", self.outfd);
             sync(&self.outfd)?;
@@ -171,7 +174,7 @@ pub fn tree_walker(
             .last()
             .ok_or(XcpError::InvalidSource("Failed to find source directory name."))?;
 
-        let target_base = if dest.exists() && !config.no_target_directory {
+        let target_base = if dest.exists() && dest.is_dir() && !config.no_target_directory {
             dest.join(sourcedir)
         } else {
             dest.to_path_buf()
@@ -202,7 +205,8 @@ pub fn tree_walker(
                 return Err(XcpError::EarlyShutdown(msg).into());
             }
 
-            match FileType::from(meta.file_type()) {
+            let ft = FileType::from(meta.file_type());
+            match ft {
                 FileType::File => {
                     debug!("Send copy operation {:?} to {:?}", from, target);
                     stats.send(StatusUpdate::Size(meta.len()))?;
@@ -220,7 +224,11 @@ pub fn tree_walker(
                     // guarantee a worker will action the creation
                     // before a subsequent copy operation requires it.
                     debug!("Creating target directory {:?}", target);
-                    create_dir_all(&target)?;
+                    if let Err(err) = create_dir_all(&target) {
+                        let msg = format!("Error creating target directory: {}", err);
+                        error!("{msg}");
+                        return Err(XcpError::CopyError(msg).into())
+                    }
                 }
 
                 FileType::Socket | FileType::Char | FileType::Fifo => {
@@ -228,8 +236,8 @@ pub fn tree_walker(
                     work_tx.send(Operation::Special(from, target))?;
                 }
 
-                FileType::Other => {
-                    error!("Unknown filetype found; this should never happen!");
+                FileType::Block | FileType::Other => {
+                    error!("Unsupported filetype found: {:?} -> {:?}", target, ft);
                     return Err(XcpError::UnknownFileType(target).into());
                 }
             };

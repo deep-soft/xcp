@@ -17,6 +17,7 @@
 use clap::{ArgAction, Parser};
 
 use libxcp::config::{Config, Reflink, Backup};
+use log::LevelFilter;
 use unbytify::unbytify;
 
 use libxcp::drivers::Drivers;
@@ -78,6 +79,10 @@ pub struct Opts {
     #[arg(long)]
     pub no_perms: bool,
 
+    /// Do not copy the file timestamps.
+    #[arg(long)]
+    pub no_timestamps: bool,
+
     /// Driver to use, defaults to 'file-parallel'.
     ///
     /// Currently there are 2; the default "parfile", which
@@ -128,8 +133,19 @@ pub struct Opts {
     pub paths: Vec<String>,
 }
 
-pub fn parse_args() -> Result<Opts> {
-    Ok(Opts::parse())
+impl Opts {
+    pub fn from_args() -> Result<Opts> {
+        Ok(Opts::parse())
+    }
+
+    pub fn log_level(&self) -> LevelFilter {
+        match self.verbose {
+            0 => LevelFilter::Warn,
+            1 => LevelFilter::Info,
+            2 => LevelFilter::Debug,
+            _ => LevelFilter::Trace,
+        }
+    }
 }
 
 impl From<&Opts> for Config {
@@ -148,6 +164,7 @@ impl From<&Opts> for Config {
             gitignore: opts.gitignore,
             no_clobber: opts.no_clobber,
             no_perms: opts.no_perms,
+            no_timestamps: opts.no_timestamps,
             no_target_directory: opts.no_target_directory,
             fsync: opts.fsync,
             reflink: opts.reflink,
