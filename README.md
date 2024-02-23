@@ -80,18 +80,24 @@ pkgin install xcp
 * Conversion of files to sparse where appropriate, as with `cp`'s
   `--sparse=always` flag.
 * Aggressive sparseness detection with `lseek`.
+* On non-Linux OSs sparse-files are not currenty supported but could be added if
+  supported by the OS.
 
-### Anti-Features
+### Differences with `cp`
 
-* On Linux `copy_file_range()` requires a kernel version of 4.5 and onwards; if
-  it is missing `xcp` will fall-back to user-space copy.
-* On non-Linux OSs sparse-files are not supported (although could be added if
-  supported by the OS).
-* Assumes a 'modern' system with lots of RAM and fast, solid-state disks. In
-  particular it is likely to thrash on spinning disks as it attempts to gather
-  metadata and perform copies at the same time.
-* Currently missing a lot of `cp`'s features and flags, although these could be
-  added.
+* Permissions, xattrs and ACLs are copied by default; this can be disabled with
+  `--no-perms`.
+* Virtual file copies are not supported; for example `/proc` and `/sys` files.
+* Character files such as [sockets](https://man7.org/linux/man-pages/man7/unix.7.html) and
+  [pipes](https://man7.org/linux/man-pages/man3/mkfifo.3.html) are copied as
+  devices (i.e. via [mknod](https://man7.org/linux/man-pages/man2/mknod.2.html))
+  rather than copying their contents as a stream.
+* The `--reflink=never` option may silently perform a reflink operation
+  regardless. This is due to the use of
+  [copy_file_range](https://man7.org/linux/man-pages/man2/copy_file_range.2.html)
+  which has no such override and may perform its own optimisations.
+* `cp` 'simple' backups are not supported, only numbered.
+* Some `cp` options are not available but may be added in the future.
 
 ## Performance
 
@@ -100,6 +106,10 @@ with an NVMe disk and in single-user mode. The target copy directory is a git
 checkout of the Firefox codebase, having been recently gc'd (i.e. a single 4.1GB
 pack file). `fstrim -va` and `echo 3 | sudo tee /proc/sys/vm/drop_caches` are
 run before each test run to minimise SSD allocation performance interference.
+
+Note: `xcp` is optimised for 'modern' systems with lots of RAM and solid-state
+disks. In particular it is likely to perform worse on spinning disks unless they
+are in highly parallel arrays.
 
 ### Local copy
 
@@ -123,5 +133,5 @@ in the copy occurring server-side rather than transferring across the network. F
 large files this can be a significant win:
 
 * Single 4.1GB file on NFSv4 mount
-    * `cp`: 378s
-    * `xcp`: ~37s
+    * `cp`: 6m18s
+    * `xcp`: 0m37s

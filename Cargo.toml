@@ -10,7 +10,7 @@ resolver = "2"
 [package]
 name = "xcp"
 description = "xcp is an experimental and incomplete clone of the Unix `cp` command, with more user-friendly feedback and some performance optimisations. NOTE: See the README for current limitations."
-version = "0.20.2"
+version = "0.20.4"
 edition = "2021"
 rust-version = "1.75.0"
 
@@ -33,20 +33,21 @@ test_no_reflink = ["libfs/test_no_reflink"]
 test_no_sparse = ["libfs/test_no_sparse"]
 test_no_extents = ["libfs/test_no_extents"]
 test_no_sockets = ["libfs/test_no_sockets"]
+test_no_acl = ["libfs/test_no_acl"]
 test_no_xattr = []
 test_no_symlinks = []
 test_no_perms = []
 test_run_expensive = []
 
 [dependencies]
-anyhow = "1.0.79"
+anyhow = "1.0.80"
 crossbeam-channel = "0.5.11"
-clap = { version = "4.4.18", features = ["derive"] }
+clap = { version = "4.5.1", features = ["derive"] }
 glob = "0.3.1"
 ignore = "0.4.22"
-indicatif = "0.17.7"
-libfs = { version = "0.7.0", path = "libfs" }
-libxcp = { version = "0.21.0", path = "libxcp" }
+indicatif = "0.17.8"
+libfs = { version = "0.7.1", path = "libfs" }
+libxcp = { version = "0.21.1", path = "libxcp" }
 log = "0.4.20"
 num_cpus = "1.16.0"
 simplelog = "0.12.1"
@@ -58,7 +59,7 @@ fslock = "0.2.1"
 rand = "0.8.5"
 rand_distr = "0.4.3"
 rand_xorshift = "0.3.0"
-tempfile = "3.9.0"
+tempfile = "3.10.0"
 test-case = "3.3.1"
 uuid = { version = "1.7.0", features = ["v4"] }
 walkdir = "2.4.0"
