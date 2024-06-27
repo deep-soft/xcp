@@ -27,6 +27,7 @@ use libxcp::errors::Result;
 #[command(
     name = "xcp",
     about = "A (partial) clone of the Unix `cp` command with progress and pluggable drivers.",
+    version,
 )]
 pub struct Opts {
     /// Verbosity.
@@ -38,6 +39,13 @@ pub struct Opts {
     /// Copy directories recursively
     #[arg(short, long)]
     pub recursive: bool,
+
+    /// Dereference symlinks in source
+    ///
+    /// Follow symlinks, possibly recursively, when copying source
+    /// files.
+    #[arg(short = 'L', long)]
+    pub dereference: bool,
 
     /// Number of parallel workers.
     ///
@@ -165,6 +173,7 @@ impl From<&Opts> for Config {
             no_clobber: opts.no_clobber,
             no_perms: opts.no_perms,
             no_timestamps: opts.no_timestamps,
+            dereference: opts.dereference,
             no_target_directory: opts.no_target_directory,
             fsync: opts.fsync,
             reflink: opts.reflink,

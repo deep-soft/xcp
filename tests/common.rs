@@ -20,7 +20,6 @@ use std::os::unix::net::UnixListener;
 use cfg_if::cfg_if;
 use test_case::test_case;
 
-
 mod util;
 use crate::util::*;
 
@@ -902,7 +901,7 @@ fn dir_copy_containing_symlinks(drv: &str) {
 
     let dest_base = dir.path().join("dest");
     let dest_file = dest_base.join("file.txt");
-    let dest_rlink = source_path.join("link.txt");
+    let dest_rlink = dest_base.join("link.txt");
 
     let out = run(&[
         "--driver",
@@ -1258,4 +1257,117 @@ fn copy_dirs_backup(drv: &str) {
     assert!(backup1.exists());
     assert!(backup2.exists());
     assert!(files_match(&source_file, &dest_file));
+}
+
+#[cfg_attr(feature = "parblock", test_case("parblock"; "Test with parallel block driver"))]
+#[test_case("parfile"; "Test with parallel file driver")]
+#[cfg_attr(feature = "test_no_symlinks", ignore = "No FS support")]
+fn dir_copy_deref_symlinks(drv: &str) {
+    let dir = tempdir_rel().unwrap();
+
+    let source_path = dir.path().join("mydir");
+    let source_file = source_path.join("file.txt");
+    let source_rlink = source_path.join("link.txt");
+    create_dir_all(&source_path).unwrap();
+    create_file(&source_file, "orig").unwrap();
+    symlink("file.txt", source_rlink).unwrap();
+    symlink("/etc/hosts", source_path.join("hosts")).unwrap();
+
+    let dest_base = dir.path().join("dest");
+    let dest_file = dest_base.join("file.txt");
+    let dest_rlink = dest_base.join("link.txt");
+
+    let out = run(&[
+        "--driver", drv,
+        "--recursive",
+        "--dereference",
+        source_path.to_str().unwrap(),
+        dest_base.to_str().unwrap(),
+    ])
+    .unwrap();
+
+    assert!(out.status.success());
+    assert!(dest_file.exists());
+    assert!(! dest_rlink
+        .symlink_metadata()
+        .unwrap()
+        .file_type()
+        .is_symlink());
+    assert!(! dest_base
+        .join("hosts")
+        .symlink_metadata()
+        .unwrap()
+        .file_type()
+        .is_symlink());
+}
+
+#[cfg_attr(feature = "parblock", test_case("parblock"; "Test with parallel block driver"))]
+#[test_case("parfile"; "Test with parallel file driver")]
+#[cfg_attr(feature = "test_no_symlinks", ignore = "No FS support")]
+fn test_nested_symlinks(drv: &str) {
+    let dir = tempdir_rel().unwrap();
+
+    let source_path = dir.path().join("mydir");
+    create_dir_all(&source_path).unwrap();
+
+    let file = source_path.join("link-0.txt");
+    create_file(&file, "data").unwrap();
+
+    for i in 1..10 {
+        let from = source_path.join(format!("link-{}.txt", i-1));
+        let to = source_path.join(format!("link-{}.txt", i));
+        symlink(from, to).unwrap();
+    }
+
+    let dest_base = dir.path().join("dest");
+
+    let out = run(&[
+        "--driver", drv,
+        "--recursive",
+        "--dereference",
+        source_path.to_str().unwrap(),
+        dest_base.to_str().unwrap(),
+    ]).unwrap();
+    assert!(out.status.success());
+
+    for i in 1..10 {
+        let dest_link = dest_base.join(format!("link-{}.txt", i));
+        assert!(dest_link.exists());
+        assert!(!dest_link.is_symlink());
+        assert!(dest_link.is_file());
+        assert!(file_contains(&dest_link, "data").unwrap());
+    }
+}
+
+#[cfg_attr(feature = "parblock", test_case("parblock"; "Test with parallel block driver"))]
+#[test_case("parfile"; "Test with parallel file driver")]
+#[cfg_attr(feature = "test_no_symlinks", ignore = "No FS support")]
+fn test_deep_symlinks(drv: &str) {
+    let dir = tempdir_rel().unwrap();
+
+    let source_path = dir.path().join("mydir");
+    create_dir_all(&source_path).unwrap();
+
+    let file = source_path.join("link-0.txt");
+    create_file(&file, "data").unwrap();
+
+    for i in 1..100 {
+        let from = source_path.join(format!("link-{}.txt", i-1));
+        let to = source_path.join(format!("link-{}.txt", i));
+        symlink(from, to).unwrap();
+    }
+
+    let dest_base = dir.path().join("dest");
+
+    let out = run(&[
+        "--driver", drv,
+        "--recursive",
+        "--dereference",
+        source_path.to_str().unwrap(),
+        dest_base.to_str().unwrap(),
+    ]).unwrap();
+
+    assert!(!out.status.success());
+    let stderr = String::from_utf8(out.stderr).unwrap();
+    assert!(stderr.contains("Too many levels of symbolic links"));
 }
